@@ -109,11 +109,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "rat-cursor",
  "rat-widget",
  "ratatui",
  "ratatui-macros",
  "rkyv",
- "tui-input",
 ]
 
 [[package]]
@@ -1909,16 +1909,6 @@ name = "tinyvec_macros"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
-
-[[package]]
-name = "tui-input"
-version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "79c1ee964298f136020f5f69e0e601f4d3a1f610a7baf1af9fcb96152e8a2c45"
-dependencies = [
- "ratatui",
- "unicode-width",
-]
 
 [[package]]
 name = "typenum"

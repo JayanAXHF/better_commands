@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use rat_cursor::screen_cursor;
 use rat_widget::event::{HandleEvent, Regular};
 use rat_widget::focus::{Focus, FocusBuilder, HasFocus};
 use rat_widget::paragraph::Paragraph;
@@ -9,8 +10,9 @@ use rat_widget::{
 use ratatui::Frame;
 use ratatui::crossterm::event;
 use ratatui::style::{Color, Style};
-use ratatui::widgets::StatefulWidget;
-use ratatui_macros::vertical;
+use ratatui::text::Span;
+use ratatui::widgets::{Block, Padding, StatefulWidget, Widget};
+use ratatui_macros::{horizontal, vertical};
 use std::io::{self, Read, Write};
 use std::process::{Child, ChildStdin};
 use std::sync::mpsc::{self, Receiver};
@@ -31,6 +33,7 @@ pub struct App {
     buf: MemBuf,
     should_quit: bool,
     focus: Option<Focus>,
+    cursor_position: Option<(u16, u16)>,
 }
 
 impl App {
@@ -52,6 +55,9 @@ impl App {
                     }
                     let event = event::read()?;
                     self.handle_event(&event);
+                    if let Some(cursor) = self.cursor_position {
+                        f.set_cursor_position(cursor);
+                    }
                     io::Result::Ok(())
                 })?;
             }
@@ -106,9 +112,38 @@ impl App {
         let area = frame.area();
         let buf = frame.buffer_mut();
         let [paragraph, input_area] = vertical![*=1, ==3].areas(area);
+        let [marker_area, input_area] = horizontal![==2, *=1].areas(input_area);
+        let marker_style = if self.input_state.is_focused() {
+            Style::default().cyan()
+        } else {
+            Style::default()
+        };
+        let marker_block = Block::default()
+            .style(Style::default().bg(Color::Rgb(59, 59, 59)))
+            .padding(Padding {
+                left: 0,
+                right: 1,
+                top: 1,
+                bottom: 1,
+            });
+        let marker = Span::styled(">", marker_style);
+        let marker_inner = marker_block.inner(marker_area);
+        marker_block.render(marker_area, buf);
+        marker.render(marker_inner, buf);
 
-        let input = TextInput::default().style(Style::default().bg(Color::Rgb(59, 59, 59)));
+        let input = TextInput::default()
+            .style(Style::default().bg(Color::Rgb(59, 59, 59)))
+            .block(
+                Block::default()
+                    .padding(Padding::vertical(1))
+                    .style(Style::default().bg(Color::Rgb(59, 59, 59))),
+            );
         input.render(input_area, buf, &mut self.input_state);
+
+        let cursor = screen_cursor([&self.input_state]);
+        if let Some(c) = cursor {
+            self.cursor_position = Some(c)
+        }
 
         let para = Paragraph::new(self.output.as_str());
         para.render(paragraph, buf, &mut self.paragraph);
