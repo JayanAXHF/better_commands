@@ -28,6 +28,7 @@ pub fn run_cli() -> Result<()> {
         .args(command_parts)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .with_context(|| format!("failed to spawn command {:?}", program))?;
 

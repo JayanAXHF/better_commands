@@ -162,29 +162,12 @@ impl App {
 
     pub fn set_handle(&mut self, mut child: Child) -> Result<()> {
         let stdout = child.stdout.take().context("child stdout was not piped")?;
+        let stderr = child.stderr.take().context("child stderr was not piped")?;
         let stdin = child.stdin.take().context("child stdin was not piped")?;
         let (tx, rx) = mpsc::channel();
 
-        thread::spawn(move || {
-            let mut stdout = stdout;
-            let mut buf = [0_u8; 4096];
-
-            loop {
-                match stdout.read(&mut buf) {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        if tx.send(buf[..n].to_vec()).is_err() {
-                            break;
-                        }
-                    }
-                    Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
-                    Err(err) => {
-                        let _ = tx.send(format!("\nError reading stdout: {err}\n").into_bytes());
-                        break;
-                    }
-                }
-            }
-        });
+        spawn_pipe_reader(stdout, tx.clone(), "stdout");
+        spawn_pipe_reader(stderr, tx, "stderr");
 
         self.child_stdin = Some(stdin);
         self.stdout_rx = Some(rx);
@@ -192,6 +175,31 @@ impl App {
 
         Ok(())
     }
+}
+
+fn spawn_pipe_reader<R>(mut reader: R, tx: mpsc::Sender<Vec<u8>>, label: &'static str)
+where
+    R: Read + Send + 'static,
+{
+    thread::spawn(move || {
+        let mut buf = [0_u8; 4096];
+
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if tx.send(buf[..n].to_vec()).is_err() {
+                        break;
+                    }
+                }
+                Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
+                Err(err) => {
+                    let _ = tx.send(format!("\nError reading {label}: {err}\n").into_bytes());
+                    break;
+                }
+            }
+        }
+    });
 }
 
 impl_has_focus!(input_state, paragraph for App);
