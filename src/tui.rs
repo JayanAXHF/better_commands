@@ -133,13 +133,12 @@ impl App {
         self.buf.write(input.clone());
         self.last_idx = None;
 
-        if let Some(stdin) = &mut self.child_stdin {
-            if writeln!(stdin, "{input}")
+        if let Some(stdin) = &mut self.child_stdin
+            && writeln!(stdin, "{input}")
                 .and_then(|_| stdin.flush())
                 .is_err()
-            {
-                self.output.push_str("\nError writing to child stdin\n");
-            }
+        {
+            self.output.push_str("\nError writing to child stdin\n");
         }
 
         self.input_state.clear();
