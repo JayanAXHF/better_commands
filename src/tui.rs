@@ -21,6 +21,8 @@ use std::time::Duration;
 
 use crate::file_buffer::MemBuf;
 
+const AUTO_SCROLL_MARGIN_LINES: usize = 3;
+
 #[derive(Default)]
 pub struct App {
     input_state: TextInputState,
@@ -34,6 +36,7 @@ pub struct App {
     should_quit: bool,
     focus: Option<Focus>,
     cursor_position: Option<(u16, u16)>,
+    auto_scroll_pending: bool,
 }
 
 impl App {
@@ -44,8 +47,10 @@ impl App {
     pub fn run(&mut self) -> Result<()> {
         ratatui::run(|terminal| {
             while !self.should_quit {
-                self.poll_stdout();
-                self.update_child_state()?;
+                let should_follow_output = self.should_follow_output();
+                let output_changed = self.poll_stdout();
+                let child_output_changed = self.update_child_state()?;
+                self.auto_scroll_pending = (output_changed || child_output_changed) && should_follow_output;
 
                 terminal.try_draw(|f| {
                     self.draw(f);
@@ -146,17 +151,36 @@ impl App {
         }
 
         let para = Paragraph::new(self.output.as_str());
-        para.render(paragraph, buf, &mut self.paragraph);
+        (&para).render(paragraph, buf, &mut self.paragraph);
+
+        if self.auto_scroll_pending {
+            self.auto_scroll_pending = false;
+            self.paragraph
+                .set_line_offset(self.paragraph.vscroll.max_offset());
+            (&para).render(paragraph, buf, &mut self.paragraph);
+        }
     }
 
-    fn poll_stdout(&mut self) {
+    fn should_follow_output(&self) -> bool {
+        self.paragraph
+            .vscroll
+            .max_offset()
+            .saturating_sub(self.paragraph.line_offset())
+            <= AUTO_SCROLL_MARGIN_LINES
+    }
+
+    fn poll_stdout(&mut self) -> bool {
         let Some(rx) = &self.stdout_rx else {
-            return;
+            return false;
         };
 
+        let mut output_changed = false;
         while let Ok(chunk) = rx.try_recv() {
             self.output.push_str(&String::from_utf8_lossy(&chunk));
+            output_changed = true;
         }
+
+        output_changed
     }
 
     fn submit_input(&mut self) {
@@ -179,9 +203,9 @@ impl App {
         self.input_state.clear();
     }
 
-    fn update_child_state(&mut self) -> Result<()> {
+    fn update_child_state(&mut self) -> Result<bool> {
         let Some(child) = &mut self.child else {
-            return Ok(());
+            return Ok(false);
         };
 
         if let Some(status) = child.try_wait().context("failed to poll child process")? {
@@ -189,9 +213,10 @@ impl App {
             self.output
                 .push_str(&format!("\n[process exited with {status}]\n"));
             self.should_quit = true;
+            return Ok(true);
         }
 
-        Ok(())
+        Ok(false)
     }
 
     pub fn set_handle(&mut self, mut child: Child) -> Result<()> {
@@ -243,4 +268,28 @@ fn build_focus(state: &mut App) -> &mut Focus {
     state.build(&mut fb);
     state.focus = Some(fb.build());
     state.focus.as_mut().expect("focus")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn follows_output_when_at_bottom() {
+        assert!(should_follow_output_for(10, 10));
+    }
+
+    #[test]
+    fn follows_output_within_margin() {
+        assert!(should_follow_output_for(8, 10));
+    }
+
+    #[test]
+    fn does_not_follow_output_past_margin() {
+        assert!(!should_follow_output_for(6, 10));
+    }
+
+    fn should_follow_output_for(offset: usize, max_offset: usize) -> bool {
+        max_offset.saturating_sub(offset) <= AUTO_SCROLL_MARGIN_LINES
+    }
 }
